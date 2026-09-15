@@ -2,7 +2,7 @@ mod solver;
 mod word;
 mod word_lists;
 
-use solver::{GuessFeedback, Pattern, Solver, feedback};
+use solver::{GuessFeedback, Pattern, Solver, feedback, obeys_hard_mode};
 use std::io::{self, Write};
 use word::Word;
 use word_lists::load_word_lists;
@@ -115,7 +115,7 @@ Usage:
   cargo run -- --answer WORD [--start WORD] [--hard] [--max-guesses N]
 
 Flags:
-  --hard            Restrict suggestions to remaining valid answers (Wordle hard-style)
+  --hard            Only suggest/accept guesses that reuse revealed hints (Wordle hard mode)
   --top N           Number of suggestions to show (default: 10)
   --answer WORD     Run automatic simulation against a known answer
   --start WORD      Starting guess for simulation mode
@@ -156,7 +156,7 @@ fn run_interactive(solver: &Solver, config: &Config) -> io::Result<()> {
                 println!("Candidates: {list}");
             }
 
-            let suggestions = solver.suggestions(&candidates, hard_mode, config.top_n);
+            let suggestions = solver.suggestions(&history, &candidates, hard_mode, config.top_n);
             println!("Top suggestions:");
             for (index, suggestion) in suggestions.iter().enumerate() {
                 println!(
@@ -261,15 +261,9 @@ fn run_interactive(solver: &Solver, config: &Config) -> io::Result<()> {
             }
         };
 
-        if hard_mode {
-            let candidates = solver.candidates(&history);
-            if !candidates.contains(&guess) {
-                println!(
-                    "In hard mode this app only suggests/accepts remaining candidate words. '{}' is not currently valid.",
-                    guess
-                );
-                continue;
-            }
+        if hard_mode && !obeys_hard_mode(guess, &history) {
+            println!("'{guess}' does not use every revealed hint (hard mode).");
+            continue;
         }
 
         history.push(GuessFeedback { guess, pattern });
@@ -302,7 +296,7 @@ fn run_simulation(
         start
     } else {
         let candidates = solver.candidates(&history);
-        let suggestions = solver.suggestions(&candidates, config.hard_mode, 1);
+        let suggestions = solver.suggestions(&history, &candidates, config.hard_mode, 1);
         if let Some(first) = suggestions.first() {
             first.word
         } else {
@@ -332,7 +326,7 @@ fn run_simulation(
             return Ok(());
         }
 
-        let suggestions = solver.suggestions(&candidates, config.hard_mode, config.top_n.max(1));
+        let suggestions = solver.suggestions(&history, &candidates, config.hard_mode, config.top_n);
         let Some(next) = suggestions.first() else {
             println!("No next suggestion found after turn {turn}.");
             return Ok(());

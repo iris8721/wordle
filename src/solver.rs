@@ -136,6 +136,7 @@ impl Solver {
 
     pub fn suggestions(
         &self,
+        history: &[GuessFeedback],
         candidates: &[Word],
         hard_mode: bool,
         top_n: usize,
@@ -144,8 +145,8 @@ impl Solver {
             return Vec::new();
         }
 
+        let candidate_set = candidates.iter().copied().collect::<HashSet<_>>();
         if candidates.len() <= 2 {
-            let candidate_set = candidates.iter().copied().collect::<HashSet<_>>();
             return candidates
                 .iter()
                 .copied()
@@ -155,13 +156,16 @@ impl Solver {
         }
 
         let guess_pool = if hard_mode {
-            candidates.to_vec()
+            self.guesses
+                .iter()
+                .copied()
+                .filter(|&guess| obeys_hard_mode(guess, history))
+                .collect()
         } else {
-            self.reduced_guess_pool(candidates)
+            self.guesses.clone()
         };
-        let candidate_set = candidates.iter().copied().collect::<HashSet<_>>();
 
-        let mut scored = guess_pool
+        let mut scored = reduce_guess_pool(guess_pool, candidates)
             .into_iter()
             .map(|guess| score_guess(guess, candidates, &candidate_set))
             .collect::<Vec<_>>();
@@ -176,21 +180,21 @@ impl Solver {
         scored.truncate(top_n);
         scored
     }
+}
 
-    fn reduced_guess_pool(&self, candidates: &[Word]) -> Vec<Word> {
-        if candidates.len() <= 120 {
-            return self.guesses.clone();
-        }
-
-        let mut ranked = rough_rank_guesses(&self.guesses, candidates);
-        let cap = if candidates.len() > 1000 {
-            3_000
-        } else {
-            6_000
-        };
-        ranked.truncate(cap.min(ranked.len()));
-        ranked
+fn reduce_guess_pool(pool: Vec<Word>, candidates: &[Word]) -> Vec<Word> {
+    if candidates.len() <= 120 {
+        return pool;
     }
+
+    let mut ranked = rough_rank_guesses(&pool, candidates);
+    let cap = if candidates.len() > 1000 {
+        3_000
+    } else {
+        6_000
+    };
+    ranked.truncate(cap.min(ranked.len()));
+    ranked
 }
 
 pub fn feedback(guess: Word, answer: Word) -> Pattern {
@@ -223,6 +227,33 @@ pub fn feedback(guess: Word, answer: Word) -> Pattern {
     }
 
     Pattern::from_marks(marks)
+}
+
+// greens stay put, every revealed letter must be reused at least as often
+pub fn obeys_hard_mode(guess: Word, history: &[GuessFeedback]) -> bool {
+    let guess_letters = guess.letters();
+    let mut have = [0u8; 26];
+    for &letter in &guess_letters {
+        have[(letter - b'A') as usize] += 1;
+    }
+
+    history.iter().all(|entry| {
+        let prior_letters = entry.guess.letters();
+        let marks = entry.pattern.marks();
+        let mut need = [0u8; 26];
+
+        for i in 0..WORD_LEN {
+            if marks[i] == 0 {
+                continue;
+            }
+            if marks[i] == 2 && guess_letters[i] != prior_letters[i] {
+                return false;
+            }
+            need[(prior_letters[i] - b'A') as usize] += 1;
+        }
+
+        need.iter().zip(&have).all(|(need, have)| have >= need)
+    })
 }
 
 fn score_guess(guess: Word, candidates: &[Word], candidate_set: &HashSet<Word>) -> Suggestion {
@@ -383,7 +414,7 @@ mod tests {
         let answers = vec![w("ABACK"), w("ALARM"), w("BEARD"), w("CRANE"), w("SHARD")];
         let guesses = answers.clone();
         let solver = Solver::new(answers.clone(), guesses);
-        let suggestions = solver.suggestions(&answers, false, 5);
+        let suggestions = solver.suggestions(&[], &answers, false, 5);
 
         let best = suggestions.first().expect("at least one suggestion");
         let worst = suggestions.last().expect("at least one suggestion");
