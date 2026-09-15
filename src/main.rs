@@ -90,7 +90,8 @@ fn parse_args() -> Result<Config, String> {
                 simulate_start = Some(word);
             }
             "--help" | "-h" => {
-                return Err(help_text());
+                print!("{}", help_text());
+                std::process::exit(0);
             }
             other => {
                 return Err(format!("Unknown argument: {other}\n\n{}", help_text()));
