@@ -274,6 +274,7 @@ fn run_interactive(solver: &Solver, config: &Config) -> io::Result<()> {
         history.push(GuessFeedback { guess, pattern });
         if pattern.is_solved() {
             println!("Solved in {} guesses.", history.len());
+            break;
         }
     }
 
@@ -288,7 +289,7 @@ fn run_simulation(
 ) -> Result<(), String> {
     if !solver.is_possible_answer(answer) {
         return Err(format!(
-            "Simulation answer '{}' is not in the official answer list.",
+            "Simulation answer '{}' is not in the answer list.",
             answer
         ));
     }
