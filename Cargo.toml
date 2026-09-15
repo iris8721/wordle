@@ -1,5 +1,10 @@
 [package]
 name = "wordle"
+version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "Terminal Wordle solver and assistant"
+repository = "https://github.com/iris8721/wordle"
 
 [dependencies]
