@@ -18,9 +18,9 @@ impl Pattern {
         let mut factor = 1u16;
         for symbol in raw.chars() {
             let encoded = match symbol.to_ascii_uppercase() {
-                'B' | 'X' | '0' => 0u16,
-                'Y' | '1' => 1u16,
-                'G' | '2' => 2u16,
+                'B' => 0u16,
+                'Y' => 1u16,
+                'G' => 2u16,
                 _ => return Err("Pattern can only contain B, Y, or G.".to_string()),
             };
             value += encoded * factor;
@@ -62,13 +62,12 @@ impl Pattern {
 impl Display for Pattern {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for mark in self.marks() {
-            let symbol = match mark {
-                0 => 'B',
-                1 => 'Y',
-                2 => 'G',
+            f.write_str(match mark {
+                0 => "B",
+                1 => "Y",
+                2 => "G",
                 _ => return Err(fmt::Error),
-            };
-            f.write_str(&symbol.to_string())?;
+            })?;
         }
         Ok(())
     }
