@@ -248,9 +248,12 @@ fn score_guess(guess: Word, candidates: &[Word], candidate_set: &HashSet<Word>) 
         }
     }
 
-    let solve_next_rate = singleton_buckets as f64 / total_answers;
-    let adjusted_score = (1.0 - solve_next_rate) * expected_remaining;
-    let guesses = estimate_guesses(candidates.len(), expected_remaining, solve_next_rate);
+    // GGGGG is known but needs no next turn
+    let solved_now = usize::from(buckets[SOLVED_PATTERN as usize]);
+    let known_rate = singleton_buckets as f64 / total_answers;
+    let solve_next_rate = (singleton_buckets - solved_now) as f64 / total_answers;
+    let adjusted_score = (1.0 - known_rate) * expected_remaining;
+    let guesses = estimate_guesses(&buckets, total_answers, expected_remaining);
 
     Suggestion {
         word: guess,
@@ -262,21 +265,31 @@ fn score_guess(guess: Word, candidates: &[Word], candidate_set: &HashSet<Word>) 
     }
 }
 
-fn estimate_guesses(total_answers: usize, expected_remaining: f64, solve_next_rate: f64) -> f64 {
-    if total_answers <= 1 || solve_next_rate >= 0.999_999 {
-        return 1.0;
+// expected turns including this one; solved bucket ends the game here
+fn estimate_guesses(buckets: &[u16; NUM_PATTERNS], total_answers: f64, expected_remaining: f64) -> f64 {
+    let reduction = (total_answers / expected_remaining.max(1.0)).max(1.000_001);
+
+    let mut turns = 0.0;
+    for (index, &count) in buckets.iter().enumerate() {
+        if count == 0 {
+            continue;
+        }
+
+        let count = f64::from(count);
+        let weight = count / total_answers;
+        if index == SOLVED_PATTERN as usize {
+            turns += weight;
+        } else {
+            turns += weight * (1.0 + remaining_turns(count, reduction));
+        }
     }
+    turns
+}
 
-    if total_answers <= 3 {
-        return total_answers as f64;
-    }
-
-    let n = total_answers as f64;
-    let e = expected_remaining.clamp(1.0, n);
-    let reduction = (n / e).max(1.000_001);
-    let turns = n.ln() / reduction.ln();
-
-    (turns + 1.0).clamp(1.0, n)
+// bounded by "guess a candidate, rest splits" and "walk the candidates one by one"
+fn remaining_turns(count: f64, reduction: f64) -> f64 {
+    let estimate = 1.0 + count.ln() / reduction.ln();
+    estimate.clamp(2.0 - 1.0 / count, (count + 1.0) / 2.0)
 }
 
 fn rough_rank_guesses(guesses: &[Word], candidates: &[Word]) -> Vec<Word> {
