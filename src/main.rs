@@ -189,7 +189,11 @@ fn run_interactive(solver: &Solver, config: &Config) -> io::Result<()> {
             continue;
         }
 
-        let upper = trimmed.to_ascii_uppercase();
+        let upper = trimmed
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_uppercase();
         match upper.as_str() {
             "QUIT" | "EXIT" => break,
             "UNDO" => {
@@ -250,7 +254,7 @@ fn run_interactive(solver: &Solver, config: &Config) -> io::Result<()> {
             continue;
         };
         if !solver.is_valid_guess(guess) {
-            println!("'{guess}' is not in the official guess list.");
+            println!("'{guess}' is not in the guess list.");
             continue;
         }
 
