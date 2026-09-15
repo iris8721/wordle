@@ -368,7 +368,7 @@ fn rough_rank_guesses(guesses: &[Word], candidates: &[Word]) -> Vec<Word> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GuessFeedback, Pattern, Solver, feedback};
+    use super::{GuessFeedback, Pattern, Solver, feedback, obeys_hard_mode};
     use crate::word::Word;
 
     fn w(raw: &str) -> Word {
@@ -388,9 +388,31 @@ mod tests {
     }
 
     #[test]
+    fn feedback_marks_only_as_many_repeats_as_the_answer_has() {
+        assert_eq!(feedback(w("LLAMA"), w("ALLOY")).to_string(), "YGYBB");
+        assert_eq!(feedback(w("EERIE"), w("CLEAN")).to_string(), "YBBBB");
+        assert_eq!(feedback(w("EERIE"), w("THREE")).to_string(), "YBGBG");
+    }
+
+    #[test]
     fn pattern_round_trip() {
         let pattern = Pattern::parse("GYBBB").expect("valid pattern");
         assert_eq!(pattern.to_string(), "GYBBB");
+    }
+
+    #[test]
+    fn pattern_rejects_bad_input() {
+        assert!(Pattern::parse("GGGG").is_err());
+        assert!(Pattern::parse("GGGGGG").is_err());
+        assert!(Pattern::parse("GGGGZ").is_err());
+        assert!(Pattern::parse("GGG1G").is_err());
+        assert!(Pattern::parse("gybbb").is_ok());
+    }
+
+    #[test]
+    fn only_all_green_is_solved() {
+        assert!(Pattern::parse("GGGGG").expect("valid pattern").is_solved());
+        assert!(!Pattern::parse("GGGGY").expect("valid pattern").is_solved());
     }
 
     #[test]
@@ -409,6 +431,13 @@ mod tests {
     }
 
     #[test]
+    fn no_candidates_means_no_suggestions() {
+        let answers = vec![w("ABACK")];
+        let solver = Solver::new(answers.clone(), answers);
+        assert!(solver.suggestions(&[], &[], false, 5).is_empty());
+    }
+
+    #[test]
     fn guesses_estimate_rewards_better_partitioning() {
         let answers = vec![w("ABACK"), w("ALARM"), w("BEARD"), w("CRANE"), w("SHARD")];
         let guesses = answers.clone();
@@ -418,5 +447,96 @@ mod tests {
         let best = suggestions.first().expect("at least one suggestion");
         let worst = suggestions.last().expect("at least one suggestion");
         assert!(best.guesses <= worst.guesses + f64::EPSILON);
+    }
+
+    #[test]
+    fn two_candidates_average_one_and_a_half_guesses() {
+        let answers = vec![w("ABACK"), w("ALARM")];
+        let solver = Solver::new(answers.clone(), answers.clone());
+        let suggestions = solver.suggestions(&[], &answers, false, 2);
+
+        assert_eq!(suggestions.len(), 2);
+        for suggestion in &suggestions {
+            assert!((suggestion.guesses - 1.5).abs() < 1e-9);
+            assert!((suggestion.solve_next_rate - 0.5).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn splitting_guess_still_needs_a_turn_to_play_the_answer() {
+        let answers = vec![w("ABACK"), w("PLANK"), w("QUACK")];
+        let mut guesses = answers.clone();
+        guesses.push(w("BLOKE"));
+        let solver = Solver::new(answers.clone(), guesses);
+        let suggestions = solver.suggestions(&[], &answers, false, 4);
+
+        let find = |word: &str| {
+            suggestions
+                .iter()
+                .find(|s| s.word == w(word))
+                .expect("word should be scored")
+        };
+
+        let bloke = find("BLOKE");
+        assert!(!bloke.is_candidate);
+        assert!((bloke.solve_next_rate - 1.0).abs() < 1e-9);
+        assert!((bloke.guesses - 2.0).abs() < 1e-9);
+
+        let aback = find("ABACK");
+        assert!(aback.is_candidate);
+        assert!((aback.solve_next_rate - 2.0 / 3.0).abs() < 1e-9);
+        assert!((aback.guesses - 5.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn hard_mode_keeps_greens_and_reuses_revealed_letters() {
+        let history = vec![GuessFeedback {
+            guess: w("CRANE"),
+            pattern: Pattern::parse("YBGBB").expect("valid pattern"),
+        }];
+
+        assert!(obeys_hard_mode(w("ABACK"), &history));
+        assert!(obeys_hard_mode(w("COACH"), &history));
+        assert!(!obeys_hard_mode(w("ACTOR"), &history));
+        assert!(!obeys_hard_mode(w("SLATE"), &history));
+
+        let history = vec![GuessFeedback {
+            guess: w("LLAMA"),
+            pattern: Pattern::parse("YGYBB").expect("valid pattern"),
+        }];
+
+        assert!(obeys_hard_mode(w("ALLOY"), &history));
+        assert!(!obeys_hard_mode(w("ALOOF"), &history));
+    }
+
+    #[test]
+    fn hard_mode_pool_allows_eliminated_words_that_fit_the_clues() {
+        let answers = vec![w("ABACK"), w("PLANK"), w("QUACK"), w("FLAME")];
+        let mut guesses = answers.clone();
+        guesses.extend([w("BEARD"), w("CRANE"), w("STOMP")]);
+        let solver = Solver::new(answers.clone(), guesses);
+
+        let history = vec![GuessFeedback {
+            guess: w("SHARD"),
+            pattern: Pattern::parse("BBGBB").expect("valid pattern"),
+        }];
+        let candidates = solver.candidates(&history);
+        assert_eq!(candidates, answers);
+
+        let words = |hard_mode: bool| {
+            let mut words = solver
+                .suggestions(&history, &candidates, hard_mode, 10)
+                .into_iter()
+                .map(|s| s.word)
+                .collect::<Vec<_>>();
+            words.sort();
+            words
+        };
+
+        let mut hard = answers.clone();
+        hard.extend([w("BEARD"), w("CRANE")]);
+        hard.sort();
+        assert_eq!(words(true), hard);
+        assert!(words(false).contains(&w("STOMP")));
     }
 }
